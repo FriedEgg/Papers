@@ -1,1 +1,3 @@
-# Papers
+# SAS Papers
+
+A collection of contributions to SAS User Groups such as SGF, MWSUG, SESUG, ...
