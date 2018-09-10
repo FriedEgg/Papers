@@ -5,7 +5,7 @@
   *
   * AUTHORS: Arthur Tabachneck, Gerhard Svolba, Joe Matise and Matt Kastin
   * CREATED: September 25, 2017
-  * MODIFIED: October 16, 2017
+  * MODIFIED: September 10, 2018
 
   Parameter Descriptions:
 
@@ -71,9 +71,9 @@
    YES, NO or N/A and must be correctly assigned to reflect the way the
    transposed variables were formed
       
-   YES=<prefix>var<delimiter>id<suffix>
-   NO=<prefix>id<delimiter>var<suffix>
-   N/A=<prefix>+id<suffix> or <prefix>+var<suffix>
+   YES=[prefix]var[delimiter]id[suffix]
+   NO=[prefix]id[delimiter]var[suffix]
+   N/A=[prefix]id[suffix] or [prefix]+var[suffix]
 
   *delimiter* ONLY NECESSARY IF YOUR TRANSPOSED VARIABLE NAME(S) CONTAIN A
    DELIMITER - the parameter to which you would assign the string (if any)
@@ -109,6 +109,11 @@
    UNTRANSPOSED VARIABLES) - This parameter is only applicable to those cases
    where you are untransposing a file from being wide to being long. If used
    it should be used cautiously as it could result in losing data
+
+  *create_byvar* NOT REQUIRED - the parameter to which you would specify the
+   variable name you want assigned to serve as the by variable in the event
+   that you don't have a by variable and want the sequential record number
+   to be assigned to that variable
 */
 
 %macro untranspose(libname_in=,
@@ -128,33 +133,34 @@
                    missing=NO,
                    metadata=,
                    makelong=,
-                   max_length=);
+                   max_length=,
+                   create_byvar=);
 
-/*Check whether the data and out parameters contain 1 or 2-level filenames*/
-/*and, if needed, separate libname and data from data set options */
+  /*Check whether data and out parameters contain 1 or 2-level filenames*/
+  /*and, if needed, separate libname and data from data set options */
   %let lp=%sysfunc(findc(%superq(data),%str(%()));
   %if &lp. %then %do;
    %let rp=%sysfunc(findc(%superq(data),%str(%)),b));
-/*for SAS*/
+  /*for SAS*/
    %let dsoptions=%qsysfunc(substrn(%nrstr(%superq(data)),&lp+1,&rp-&lp-1));
    %let data=%sysfunc(substrn(%nrstr(%superq(data)),1,%eval(&lp-1)));
-/*for WPS
+  /*for WPS
    %let dsoptions=%qsysfunc(substrn(%nrquote(%superq(data)),&lp+1,&rp-&lp-1));
    %let data=%sysfunc(substrn(%nrquote(%superq(data)),1,%eval(&lp-1)));
-*/
+  */
   %end;
   %else %let dsoptions=;
 
   %let lp=%sysfunc(findc(%superq(out),%str(%()));
   %if &lp. %then %do;
    %let rp=%sysfunc(findc(%superq(out),%str(%)),b));
-/*for SAS*/
+   /*for SAS*/
    %let odsoptions=%qsysfunc(substrn(%nrstr(%superq(out)),&lp+1,&rp-&lp-1));
    %let out=%sysfunc(substrn(%nrstr(%superq(out)),1,%eval(&lp-1)));
-/*for WPS
+   /*for WPS
    %let odsoptions=%qsysfunc(substrn(%nrquote(%superq(out)),&lp+1,&rp-&lp-1));
    %let out=%sysfunc(substrn(%nrquote(%superq(out)),1,%eval(&lp-1)));
-*/
+   */
   %end;
   %else %let odsoptions=;
   %if %sysfunc(countw(&data.)) eq 2 %then %do;
@@ -173,7 +179,7 @@
     %let libname_out=work;
   %end;
 
-/*Create macro variable to contain a list of variables that were copied*/
+  /*Create macro variable to contain a list of variables that were copied*/
   %let to_copy=;
   %if %length(&copy.) gt 0 %then %do;
     data t_e_m_p;
@@ -229,9 +235,7 @@
     ;
     select min(type), max(length)
       into :mintype,:maxlength
-        from dictionary.columns
-          where libname="WORK" and
-                memname="T_E_M_P"
+        from WORK.T_E_M_P
     ;
   quit;
 
@@ -281,6 +285,10 @@
     by id_value order;
   run;
 
+  %if %length(&by) lt 1 and %length(&create_byvar) gt 0 %then %do;
+    %let by=&create_byvar;
+  %end;
+
   data _null_;
     length forexec $255;
     set t_e_m_p end=lastone;
@@ -289,6 +297,9 @@
       if _n_ eq 1 then do;
         call execute("data &libname_out..&out.");
         call execute("(&odsoptions. keep=&by. _name_ _value_ &copy.);");
+        %if %length(&create_byvar) gt 0 %then %do;
+          call execute("length &create_byvar. 8.;");
+        %end;
         %if %length(%unquote(&dsoptions.)) gt 2 %then %do;
            call execute("set &libname_in..&data. (&dsoptions.);");
         %end;
@@ -301,7 +312,7 @@
             forexec=catt(forexec,"$",&max_length.,";");
           %end;
           %else %do;
-            forexec=catt(forexec,&max_length.,";");
+            forexec=catx(' ',forexec,&max_length.,";");
           %end;
         %end;
         %else %do;
@@ -309,7 +320,7 @@
             forexec=catt(forexec,"$",&maxlength.,";");
           %end;
           %else %do;
-            forexec=catt(forexec,&maxlength.,";");
+            forexec=catx(' ',forexec,&maxlength.,";");
           %end;
         %end;
         call execute(forexec);
@@ -324,6 +335,9 @@
         forexec=catt('if not missing(',name,') then do;');
         call execute(forexec);
       %end;
+      %if %length(&create_byvar) gt 0 %then %do;
+        call execute("&create_byvar. = _n_;");
+      %end;
       call execute('output;');
       %if %upcase(&missing.) eq NO %then %do;
         call execute('end;');
@@ -333,6 +347,9 @@
       if _n_ eq 1 then do;
         call execute("data &libname_out..&out.");
         call execute("(&odsoptions. keep=&by. &id. _name_ _value_ &copy.);");
+        %if %length(&create_byvar) gt 0 %then %do;
+          call execute("length &create_byvar. 8.;");
+        %end;
         %if %length(%unquote(&dsoptions.)) gt 2 %then %do;
            call execute("set &libname_in..&data. (&dsoptions.);");
         %end;
@@ -349,7 +366,7 @@
             forexec=catt(forexec,"$",&max_length.,";");
           %end;
           %else %do;
-            forexec=catt(forexec,&max_length.,";");
+            forexec=catx(' ',forexec,&max_length.,";");
           %end;
         %end;
         %else %do;
@@ -357,7 +374,7 @@
             forexec=catt(forexec,"$",&maxlength.,";");
           %end;
           %else %do;
-            forexec=catt(forexec,&maxlength.,";");
+            forexec=catx(' ',forexec,&maxlength.,";");
           %end;
         %end;
         call execute(forexec);
@@ -381,6 +398,9 @@
         forexec=catt("&id.",'="',makeid,'";');
       end;
       call execute(forexec);
+      %if %length(&create_byvar) gt 0 %then %do;
+        call execute("&create_byvar. = _n_;");
+      %end;
       call execute('output;');
       %if %upcase(&missing.) eq NO %then %do;
         call execute('end;');
@@ -390,6 +410,9 @@
       if _n_ eq 1 then do;
         call execute("data &libname_out..&out.");
         call execute("(&odsoptions. keep=&by. &id. &var. &copy.);");
+        %if %length(&create_byvar) gt 0 %then %do;
+          call execute("length &create_byvar. 8.;");
+        %end;
         %if %length(%unquote(&dsoptions.)) gt 2 %then %do;
            call execute("set &libname_in..&data. (&dsoptions.);");
         %end;
@@ -438,6 +461,11 @@
           forexec=catt("&id.",'="',makeid,'";');
         end;
         call execute(forexec);
+
+        %if %length(&create_byvar) gt 0 %then %do;
+          call execute("&create_byvar. = _n_;");
+        %end;
+
         call execute('output;');
         %if %upcase(&missing.) eq NO %then call execute('end;');;
       end;

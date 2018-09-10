@@ -17,6 +17,12 @@ that inherit all of the original variables’ characteristics.
 
 ## Presentations
 ```
+Toronto Area SAS Society
+Friday, September 14, 2018 10:50am-11:20am
+Classic TASS Agenda
+```
+
+```
 SAS Global Forum
 Monday, April 10, 2018 10:00am-10:30am
 2419
